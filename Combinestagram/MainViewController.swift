@@ -33,7 +33,7 @@ final class MainViewController: UIViewController {
 
     // MARK: - propeties
     private let bag = DisposeBag()
-    // private let images = Variable<[UIImage]>([])
+    private let images = Variable<[UIImage]>([])
 
     // MARK:life circle
     override func viewDidLoad() {
