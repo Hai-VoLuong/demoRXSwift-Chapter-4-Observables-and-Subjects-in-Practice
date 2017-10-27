@@ -22,9 +22,41 @@
 
 import Foundation
 import UIKit
+import RxSwift
 
-class PhotoWriter: NSObject {
-  typealias Callback = (NSError?)->Void
+typealias Callback = (NSError?) -> Void
 
+final class PhotoWriter: NSObject {
+
+    // MARK: - Private Properties
+    private var callBack: Callback
+
+    // MARK: - Init
+    private init (callback: @escaping Callback) {
+        self.callBack = callback
+    }
+
+    // MARK: - Private func
+    static func save(_ image: UIImage) -> Observable<Void> {
+        return Observable.create({ observer in
+            let write = PhotoWriter(callback: { error in
+                if let error = error {
+                    observer.onError(error)
+                } else {
+                    observer.onCompleted()
+                }
+            })
+
+            UIImageWriteToSavedPhotosAlbum(image, write,
+            #selector(PhotoWriter.image(_: didFinishSavingWithError:contextInfo:)), nil)
+            return Disposables.create()
+        })
+    }
+
+    // MARK: - Public func
+    func image(_ image: UIImage, didFinishSavingWithError error: NSError?, contextInfo: UnsafeRawPointer) {
+        callBack(error)
+
+    }
 }
 

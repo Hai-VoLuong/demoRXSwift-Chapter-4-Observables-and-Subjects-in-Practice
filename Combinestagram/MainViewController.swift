@@ -26,10 +26,10 @@ import RxSwift
 final class MainViewController: UIViewController {
 
     // MARK: - IBOutlet
-    @IBOutlet weak var imagePreview: UIImageView!
-    @IBOutlet weak var buttonClear: UIButton!
-    @IBOutlet weak var buttonSave: UIButton!
-    @IBOutlet weak var itemAdd: UIBarButtonItem!
+    @IBOutlet private weak var imagePreview: UIImageView!
+    @IBOutlet private weak var buttonClear: UIButton!
+    @IBOutlet private weak var buttonSave: UIButton!
+    @IBOutlet private weak var itemAdd: UIBarButtonItem!
 
     // MARK: - propeties
     private let bag = DisposeBag()
@@ -38,28 +38,69 @@ final class MainViewController: UIViewController {
     // MARK:life circle
     override func viewDidLoad() {
         super.viewDidLoad()
+        images.asObservable().subscribe(onNext: { [weak self] photos in
+            guard let preview = self?.imagePreview else { return }
+            preview.image = UIImage.collage(images: photos, size: preview.frame.size)
+        }).addDisposableTo(bag)
 
+        images.asObservable().subscribe(onNext: { [weak self] photos in
+            self?.updateUI(photos: photos)
+        }).addDisposableTo(bag)
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        print("resources: \(RxSwift.Resources.total)")
     }
 
     // MARK: - IBAction
-    @IBAction func actionClear() {
+    @IBAction private func actionClear() {
+        images.value = []
     }
 
-    @IBAction func actionSave() {
+    @IBAction private func actionSave() {
+        guard let image = imagePreview.image else { return }
+        PhotoWriter.save(image).subscribe(
+            onError: { [weak self] error in
+                self?.showMessage("Error", description: error.localizedDescription)},
+            onCompleted: { [weak self] in
+                self?.showMessage("Save")
+                self?.actionClear()
+        }).addDisposableTo(bag)
     }
 
-    @IBAction func actionAdd() {
+    @IBAction private func actionAdd() {
+        images.value.append(UIImage(named: "IMG_1907.jpg")!)
+        let photosViewController = storyboard?.instantiateViewController(withIdentifier: "PhotosViewController") as? PhotosViewController
 
+        photosViewController?.selectedPhotos.subscribe(onNext: { [weak self] newImage in // 4
+            guard let images = self?.images else { return }
+            images.value.append(newImage)
+            }, onDisposed: {
+                print("completed photo selection")
+        }).addDisposableTo((photosViewController?.bag)!)
+
+        navigationController?.pushViewController(photosViewController!, animated: true)
+    }
+
+    // MARK: - private function
+    private func updateUI(photos: [UIImage]) {
+        buttonSave.isEnabled = photos.count > 0 && photos.count % 2 == 0
+        buttonClear.isEnabled = photos.count > 0
+        itemAdd.isEnabled = photos.count < 6
+        title = photos.count > 0 ? "\(photos.count) photos" : "Collage"
     }
 
     // MARK: - public function
     func showMessage(_ title: String, description: String? = nil) {
-        let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
-        present(alert, animated: true, completion: nil)
+    // let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
+    // alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
+    // present(alert, animated: true, completion: nil)
+
+        alert(title: title, text: description)
+        .subscribe(onNext: { [weak self] in
+            self?.dismiss(animated: true, completion: nil)
+        })
+        .addDisposableTo(bag)
     }
 }
