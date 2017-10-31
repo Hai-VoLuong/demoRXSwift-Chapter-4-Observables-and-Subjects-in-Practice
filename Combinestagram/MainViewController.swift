@@ -33,17 +33,23 @@ final class MainViewController: UIViewController {
 
     // MARK: - propeties
     private let bag = DisposeBag()
-    private let images = Variable<[UIImage]>([])
+    private let images = Variable<[UIImage]>([]) // 1
+    private var imageCache = [Int]()
 
     // MARK:life circle
     override func viewDidLoad() {
         super.viewDidLoad()
-        images.asObservable().subscribe(onNext: { [weak self] photos in
+        let imagesObservable = images.asObservable().share()
+
+        imagesObservable.asObservable()
+            .throttle(0.5, scheduler: MainScheduler.instance)
+            .subscribe(onNext: { [weak self] photos in // 2
             guard let preview = self?.imagePreview else { return }
             preview.image = UIImage.collage(images: photos, size: preview.frame.size)
         }).addDisposableTo(bag)
 
-        images.asObservable().subscribe(onNext: { [weak self] photos in
+        imagesObservable.asObservable()
+            .subscribe(onNext: { [weak self] photos in
             self?.updateUI(photos: photos)
         }).addDisposableTo(bag)
     }
@@ -55,7 +61,8 @@ final class MainViewController: UIViewController {
 
     // MARK: - IBAction
     @IBAction private func actionClear() {
-        images.value = []
+        images.value = [] // 3
+        imageCache = []
     }
 
     @IBAction private func actionSave() {
@@ -70,20 +77,51 @@ final class MainViewController: UIViewController {
     }
 
     @IBAction private func actionAdd() {
-        images.value.append(UIImage(named: "IMG_1907.jpg")!)
         let photosViewController = storyboard?.instantiateViewController(withIdentifier: "PhotosViewController") as? PhotosViewController
 
-        photosViewController?.selectedPhotos.subscribe(onNext: { [weak self] newImage in // 4
-            guard let images = self?.images else { return }
-            images.value.append(newImage)
-            }, onDisposed: {
-                print("completed photo selection")
-        }).addDisposableTo((photosViewController?.bag)!)
+        let newPhotos = photosViewController?.selectedPhotos.share()
 
+        newPhotos?
+            .takeWhile({ [weak self] image in
+                return (self?.images.value.count ?? 0) < 6
+            })
+            .filter({ newImage in
+                return newImage.size.width > newImage.size.height
+
+            })
+            .filter({ [weak self] newImage in
+                let len = UIImagePNGRepresentation(newImage)?.count ?? 0
+                guard self?.imageCache.contains(len) == false else {
+                    return false
+                }
+                self?.imageCache.append(len)
+                return true
+            })
+            .subscribe(onNext: { [weak self] newImage in // 4
+                guard let images = self?.images else { return }
+                images.value.append(newImage) // 3
+                }, onDisposed: {
+                    print("completed photo selection")
+            })
+            .addDisposableTo((photosViewController?.bag)!)
+
+        newPhotos?
+            .ignoreElements()
+            .subscribe(onCompleted: {
+                self.updateNavigationIcon()
+            }).addDisposableTo((photosViewController?.bag)!)
+        
         navigationController?.pushViewController(photosViewController!, animated: true)
     }
 
     // MARK: - private function
+    private func updateNavigationIcon() {
+        let icon = imagePreview.image?
+            .scaled(CGSize(width: 22, height: 22))
+            .withRenderingMode(.alwaysOriginal)
+        navigationItem.leftBarButtonItem = UIBarButtonItem(image: icon, style: .done, target: nil, action: nil)
+    }
+
     private func updateUI(photos: [UIImage]) {
         buttonSave.isEnabled = photos.count > 0 && photos.count % 2 == 0
         buttonClear.isEnabled = photos.count > 0
@@ -93,10 +131,6 @@ final class MainViewController: UIViewController {
 
     // MARK: - public function
     func showMessage(_ title: String, description: String? = nil) {
-    // let alert = UIAlertController(title: title, message: description, preferredStyle: .alert)
-    // alert.addAction(UIAlertAction(title: "Close", style: .default, handler: { [weak self] _ in self?.dismiss(animated: true, completion: nil)}))
-    // present(alert, animated: true, completion: nil)
-
         alert(title: title, text: description)
         .subscribe(onNext: { [weak self] in
             self?.dismiss(animated: true, completion: nil)
